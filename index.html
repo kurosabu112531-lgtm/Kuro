@@ -121,7 +121,7 @@ function checkDoor() {
     samples++;
   }
 
-  if (changed / samples > 0.18) {
+  if (changed / samples > 0.4) {
     detecting = false;
     statusText.textContent = "映像の変化を検知しました";
     blackScreen.style.display = "block";
