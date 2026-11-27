@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Door Detection</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #111; color: white;
+  font-family: system-ui, sans-serif; text-align: center;
+}
+main { padding: 20px; }
+video {
+  width: 100%; max-width: 500px; border-radius: 12px;
+  background: black;
+}
+button {
+  margin: 8px; padding: 14px 22px; border: 0;
+  border-radius: 10px; font-size: 16px; cursor: pointer;
+}
+#status { margin: 20px; font-size: 18px; }
+#blackScreen {
+  position: fixed; inset: 0; background: #000;
+  display: none; z-index: 9999;
+}
+#blackScreen button {
+  position: absolute; bottom: 20px; left: 50%;
+  transform: translateX(-50%); background: #222;
+  color: white; opacity: .2;
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>🚪 Door Detection</h1>
+  <video id="video" autoplay playsinline muted></video>
+  <p id="status">カメラを起動してください</p>
+  <button id="startCamera">カメラ起動</button>
+  <button id="startDetection">検知開始</button>
+  <button id="stopDetection">停止</button>
+  <p>使い方：ドアを閉めた状態で「検知開始」を押してください。</p>
+</main>
+
+<div id="blackScreen">
+  <button id="resetScreen">解除</button>
+</div>
+<canvas id="canvas" hidden></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+const statusText = document.getElementById("status");
+const blackScreen = document.getElementById("blackScreen");
+
+let stream = null;
+let reference = null;
+let detecting = false;
+let timer = null;
+let calibrationTimer = null;
+
+async function startCamera() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("カメラにはHTTPSまたはlocalhostが必要です");
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }, audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    statusText.textContent = "カメラ起動完了！ドアを映してください";
+  } catch (error) {
+    statusText.textContent = "カメラを起動できません：" + error.message;
+  }
+}
+
+function captureImage() {
+  canvas.width = 160;
+  canvas.height = 120;
+  ctx.drawImage(video, 0, 0, 160, 120);
+  return ctx.getImageData(0, 0, 160, 120).data;
+}
+
+function startDetection() {
+  if (!stream) {
+    statusText.textContent = "先にカメラを起動してください";
+    return;
+  }
+  if (video.readyState < 2) {
+    statusText.textContent = "カメラ映像の準備中です。少し待ってください";
+    return;
+  }
+
+  detecting = false;
+  clearTimeout(timer);
+  clearTimeout(calibrationTimer);
+  statusText.textContent = "閉まった状態を3秒間記録します。ドアから離れてください";
+
+  calibrationTimer = setTimeout(() => {
+    reference = captureImage();
+    detecting = true;
+    statusText.textContent = "監視中：映像に大きな変化があると画面が暗くなります";
+    checkDoor();
+  }, 3000);
+}
+
+function checkDoor() {
+  if (!detecting || !reference) return;
+
+  const current = captureImage();
+  let changed = 0;
+  let samples = 0;
+
+  for (let i = 0; i < current.length; i += 16) {
+    const diff = Math.abs(current[i] - reference[i]) +
+      Math.abs(current[i + 1] - reference[i + 1]) +
+      Math.abs(current[i + 2] - reference[i + 2]);
+    if (diff > 60) changed++;
+    samples++;
+  }
+
+  if (changed / samples > 0.18) {
+    detecting = false;
+    statusText.textContent = "映像の変化を検知しました";
+    blackScreen.style.display = "block";
+    return;
+  }
+  timer = setTimeout(checkDoor, 300);
+}
+
+function resetScreen() {
+  blackScreen.style.display = "none";
+  if (video.readyState >= 2) {
+    reference = captureImage();
+    detecting = true;
+    statusText.textContent = "監視を再開しました";
+    checkDoor();
+  }
+}
+
+function stopDetection() {
+  detecting = false;
+  clearTimeout(timer);
+  clearTimeout(calibrationTimer);
+  statusText.textContent = "検知停止中";
+}
+
+document.getElementById("startCamera").addEventListener("click", startCamera);
+document.getElementById("startDetection").addEventListener("click", startDetection);
+document.getElementById("stopDetection").addEventListener("click", stopDetection);
+document.getElementById("resetScreen").addEventListener("click", resetScreen);
+</script>
+</body>
+</html>
